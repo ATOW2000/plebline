@@ -1,0 +1,31 @@
+[package]
+name = "plebline-guided"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+description = "PlebLine guided: one road, no menu"
+
+# A library, so the window can call the same `run`.
+[lib]
+name = "plebline_guided"
+path = "src/lib.rs"
+
+[features]
+# The test build. Not a runtime flag: the test binary cannot touch real coins,
+# and the mainnet one does not even contain another network's name.
+signet = []
+
+[dependencies]
+plebline = { path = "../plebline" }
+plebline-core.workspace = true
+serde_json.workspace = true
+
+# No inquire or owo-colors: prompts go through `plebline::ask`, colours through
+# `plebline::out`, which knows whether a terminal or a window is listening.
+comfy-table = { version = "7", default-features = false }
+zeroize.workspace = true
+
+[dev-dependencies]
+plebline = { path = "../plebline", features = ["test-support"] }

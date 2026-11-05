@@ -1,0 +1,15 @@
+/target
+# Rebuilt by the package scripts.
+/dist
+
+.DS_Store
+
+# Ceremony files belong in ~/PlebLine. One copied here by mistake must never be
+# committed, because it is someone's financial record.
+wallet.json
+utxos.json
+batch*.json
+plan.json
+split.json
+batch-config.json
+tx-*.hex

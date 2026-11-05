@@ -1,0 +1,70 @@
+#!/bin/sh
+# The launcher. It runs a copy of the program from the home directory, because
+# the persistent disk may be mounted noexec, and on Tails the home is in RAM,
+# which is where a program that handles keys should run.
+set -eu
+
+FILE=plebline-gui
+
+# The program sits next to this script, installed or still on the stick.
+ACCANTO=$(cd "$(dirname "$0")" && pwd)
+
+# Someone who started this from the menu has no terminal, so errors also go to
+# a dialog box.
+guaio() {
+    if command -v zenity >/dev/null 2>&1; then
+        zenity --error --no-wrap --title="PlebLine" --text="$1" >/dev/null 2>&1 || true
+    fi
+    printf '\n%b\n\n' "$1" >&2
+    exit 1
+}
+
+# ---------------------------------------------------- which network
+#
+# The network comes from the package and is never guessed, so a test package
+# cannot end up talking to mainnet. If RETE is missing or unknown, nothing
+# starts.
+[ -f "$ACCANTO/RETE" ] || guaio "Manca il file «RETE».\n\nLa cartella va copiata per intero: i file dentro «programma» servono tutti."
+RETE=$(tr -d ' \t\n\r' < "$ACCANTO/RETE")
+case "$RETE" in
+    signet|bitcoin) ;;
+    *) guaio "Il file «RETE» dice «${RETE}», che non è una rete che conosco.\n\nRicopia la cartella dal computer di partenza." ;;
+esac
+
+[ -f "$ACCANTO/$FILE" ] || guaio "Manca il programma «${FILE}».\n\nLa cartella va copiata per intero: i file dentro «programma» servono tutti."
+
+# ------------------------------------------------------------- where it runs
+LAVORO="$HOME/.plebline-avvio/$RETE"
+
+# Only one copy may run at a time, an old version still open included. Both
+# use the same ceremony folder, and the second one to open moves the first
+# one's signed files aside, so neither counts the other's coins as committed
+# and the same coin could go into two refills. Without pgrep this check is
+# skipped, and the rename below still lets the program start.
+if command -v pgrep >/dev/null 2>&1 \
+   && pgrep -f "$LAVORO/plebline-gui(ded)?( |\$)" >/dev/null 2>&1; then
+    guaio "PlebLine è già aperto.\n\nChiudilo, poi riaprilo. Se hai appena installato una versione nuova, quello aperto è la versione di prima.\n\nSi può aprire una copia alla volta, perché due aperte insieme potrebbero mettere la stessa moneta in due ricariche."
+fi
+
+# By rename: a copy still running cannot be rewritten on Linux ("Text file
+# busy"), but it can be replaced.
+NUOVO="$LAVORO/.$FILE.nuovo"
+MOTIVO=$( { mkdir -p "$LAVORO" && rm -f "$NUOVO" && cp "$ACCANTO/$FILE" "$NUOVO" \
+            && chmod +x "$NUOVO" && mv -f "$NUOVO" "$LAVORO/$FILE"; } 2>&1 ) || {
+    rm -f "$NUOVO"
+    guaio "Non riesco a preparare «${FILE}» in ${LAVORO}.\n\nIl messaggio di errore del sistema:\n${MOTIVO}"
+}
+
+# -------------------------------------------------------- the window
+#
+# There is no terminal behind the window. If it fails to open (no OpenGL, for
+# example), a dialog says why; otherwise the user would see nothing happen.
+# Its error output is kept for that dialog; what it prints normally, such as
+# `--version`, still reaches the terminal. No torsocks-style wrapper, since the
+# program talks SOCKS5 to Tor itself.
+set +e
+{ MOTIVO=$("$LAVORO/$FILE" "$@" 2>&1 >&3 3>&-); } 3>&1
+USCITA=$?
+set -e
+[ "$USCITA" -eq 0 ] && exit 0
+guaio "La finestra non si è aperta.\n\nMotivo:\n${MOTIVO}"

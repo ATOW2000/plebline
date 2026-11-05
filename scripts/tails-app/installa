@@ -1,0 +1,330 @@
+#!/bin/sh
+# Puts PlebLine in the applications menu. It is run once from the terminal,
+# because GNOME's file manager no longer launches programs or `.desktop` files.
+#
+# Writes only in the home directory and needs no administrator password
+# (Tails may have none). With the Dotfiles feature on, a copy also goes to the
+# Persistent Storage: "Additional Software" only reinstalls Debian packages,
+# so this is the only way for PlebLine to still be there after a reboot.
+#
+# Messages go to dialog boxes when zenity is available, since a user who
+# clicked has no terminal to read.
+#
+# Nothing from the package runs, `reti.sh` included, and nothing is installed
+# until a private copy has passed the checks. Sticks have been seen returning
+# different bytes on a second read, so a file checked on the stick and then
+# read from it again may not be the file that was checked.
+
+set -eu
+
+QUI=$(cd "$(dirname "$0")" && pwd)
+MENU="$HOME/.local/share/applications"
+# Overridable only so `scripts/prova-tails-app.sh` can run without Tails.
+DOTFILES=${PLEBLINE_DOTFILES:-/live/persistence/TailsData_unlocked/dotfiles}
+
+grafico() { command -v zenity >/dev/null 2>&1; }
+
+info() {
+    if grafico; then
+        zenity --info --no-wrap --title="PlebLine" --text="$1" >/dev/null 2>&1 || true
+    else
+        printf '\n%b\n\n' "$1"
+    fi
+}
+
+guaio() {
+    if grafico; then
+        zenity --error --no-wrap --title="PlebLine" --text="$1" >/dev/null 2>&1 || true
+    else
+        printf '\n%b\n\n' "$1" >&2
+    fi
+    exit 1
+}
+
+avviso() {
+    if grafico; then
+        zenity --warning --no-wrap --title="PlebLine" --text="$1" >/dev/null 2>&1 || true
+    else
+        printf '\n%b\n\n' "$1" >&2
+    fi
+}
+
+domanda() {
+    grafico || return 1
+    zenity --question --no-wrap --title="PlebLine" --text="$1" >/dev/null 2>&1
+}
+
+# Only an explicit yes counts: Enter, Esc, a closed window or no answer at all
+# mean no. Without a window, or if zenity fails, it asks in the terminal.
+conferma() {
+    if grafico; then
+        esito=0
+        zenity --question --no-wrap --default-cancel --title="PlebLine" \
+            --ok-label="Sì, è la stessa" --cancel-label="No" \
+            --text="$1" >/dev/null 2>&1 || esito=$?
+        case "$esito" in
+            0) return 0 ;;
+            1) return 1 ;;
+        esac
+    fi
+    printf '\n%b\n\nSì o no? [s/N] ' "$1"
+    risposta=
+    read -r risposta || return 1
+    case "$risposta" in
+        s|S|si|Si|SI|sì|Sì|SÌ) return 0 ;;
+    esac
+    return 1
+}
+
+# Names taken from the package are shown on screen, so markup, escapes and
+# control codes are replaced.
+leggibile() {
+    printf '%s' "$1" | tr -c 'A-Za-z0-9._/ -' '?' | cut -c1-80
+}
+
+# --------------------------------------------- is everything there?
+PEZZI="plebline-gui avvia plebline.png voce.desktop RETE reti.sh"
+for pezzo in $PEZZI; do
+    [ -f "$QUI/programma/$pezzo" ] || guaio "Manca il file «${pezzo}».\n\nLa cartella PlebLine va copiata per intero: i file dentro «programma» servono tutti."
+done
+
+# Without the list nothing can be checked, so nothing is installed.
+[ -f "$QUI/IMPRONTE" ] || guaio "Manca il file «IMPRONTE».\n\nÈ l'elenco che dice se i file sono arrivati interi: senza, non installo.\n\nRicopia la cartella dal computer di partenza, per intero."
+command -v sha256sum >/dev/null 2>&1 || guaio "Manca «sha256sum», il programma che controlla le impronte: senza, non installo."
+
+# ------------------------------------------- a private copy, to check
+VERIFICATI=
+pulisci() { [ -z "$VERIFICATI" ] || rm -rf "$VERIFICATI"; }
+trap pulisci EXIT
+trap 'exit 1' HUP INT TERM
+VERIFICATI=$(mktemp -d "${TMPDIR:-/tmp}/plebline-installa.XXXXXX") \
+    || guaio "Non riesco a creare una cartella temporanea per controllare i file."
+chmod 700 "$VERIFICATI"
+COPIA="$VERIFICATI/pacchetto"
+mkdir "$COPIA"
+cp "$QUI/IMPRONTE" "$COPIA/IMPRONTE" 2>/dev/null \
+    || guaio "Non riesco a leggere il file «IMPRONTE».\n\nRicopia la cartella dal computer di partenza."
+
+# One line per file, as `scripts/impronte.sh` writes them. A line that does
+# not match stops the install, because `sha256sum -c` on its own would just
+# skip it.
+RIGA='^[0-9a-f]{64}  [A-Za-z0-9_][A-Za-z0-9_.-]*(/[A-Za-z0-9_][A-Za-z0-9_.-]*)*$'
+[ -s "$COPIA/IMPRONTE" ] || guaio "Il file «IMPRONTE» è vuoto.\n\nNon installo un pacchetto che non so controllare. Ricopia la cartella dal computer di partenza."
+STORTA=$(grep -Eavn -- "$RIGA" "$COPIA/IMPRONTE" | head -n 1 | cut -d: -f1)
+[ -z "$STORTA" ] || guaio "Il file «IMPRONTE» ha una riga che non capisco: la ${STORTA}.\n\nNon installo un pacchetto che non so controllare. Ricopia la cartella dal computer di partenza."
+
+ELENCO="$VERIFICATI/elenco"
+cut -c67- "$COPIA/IMPRONTE" > "$ELENCO"
+DOPPIO=$(sort "$ELENCO" | uniq -d | head -n 1)
+[ -z "$DOPPIO" ] || guaio "Il file «IMPRONTE» nomina due volte «${DOPPIO}».\n\nNon installo un pacchetto che non so controllare. Ricopia la cartella dal computer di partenza."
+
+# Every file used here must be on the list, or it would go in unchecked.
+nominato() {
+    grep -qxF -- "$1" "$ELENCO" || guaio "Il file «IMPRONTE» non nomina «${1}».\n\nUn file che l'elenco non nomina non si può controllare, e non lo installo. Ricopia la cartella dal computer di partenza."
+}
+nominato installa
+for pezzo in $PEZZI; do
+    nominato "programma/$pezzo"
+done
+
+# Every file in the folder must also be on the list, since any other file was
+# not put there by whoever built the package. macOS leaves `._*` and
+# `.DS_Store` on sticks; they are skipped because nothing reads them.
+( cd "$QUI" && find . ! -type d ) | sed 's|^\./||' | while IFS= read -r f; do
+    case "${f##*/}" in ._*|.DS_Store) continue ;; esac
+    case "$f" in IMPRONTE|IMPRONTE.asc|CHIAVE-PUBBLICA.asc) continue ;; esac
+    grep -qxF -- "$f" "$ELENCO" || printf '%s\n' "$f"
+done > "$VERIFICATI/estranei"
+if [ -s "$VERIFICATI/estranei" ]; then
+    ESTRANEO=$(leggibile "$(head -n 1 "$VERIFICATI/estranei")")
+    guaio "Nella cartella c'è un file che non dovrebbe esserci:\n«${ESTRANEO}»\n\nL'elenco delle impronte non lo nomina: non l'ha messo chi ha fatto il pacchetto. Non installo.\n\nRicopia la cartella dal computer di partenza, così com'è, senza aggiungere niente."
+fi
+
+# ----------------------------------------------------- did it arrive whole?
+#
+# Read once from the stick, then only the copy is checked and used. A stick
+# pulled out too early leaves files of the right size full of zeros.
+while IFS= read -r f; do
+    case "$f" in */*) mkdir -p "$COPIA/${f%/*}" ;; esac
+    cp "$QUI/$f" "$COPIA/$f" 2>/dev/null \
+        || guaio "Non riesco a leggere il file «${f}».\n\nRicopia la cartella dal computer di partenza, per intero."
+done < "$ELENCO"
+
+if ! NON_TORNANO=$(cd "$COPIA" && sha256sum -c --strict --quiet IMPRONTE 2>/dev/null); then
+    PRIMO=$(printf '%s\n' "$NON_TORNANO" | sed -n 's/: FAILED.*$//p' | head -n 1)
+    [ -z "$PRIMO" ] || PRIMO=" (il primo: «$(leggibile "$PRIMO")»)"
+    guaio "I file di PlebLine sono arrivati danneggiati${PRIMO}.\n\nRicopia la cartella dal computer di partenza e, prima di sfilare la chiavetta, ESPELLILA.\n\nSe la sfili senza espellerla, possono restare file della misura giusta ma pieni di zeri.\n\nOppure qualcuno li ha cambiati. In tutti e due i casi, non installo."
+fi
+
+# ----------------------------------------------------- which network
+#
+# Taken from the package and never guessed, because the menu name and the home
+# directory depend on it. Read as plain data here, since `reti.sh` is sourced
+# only after every check.
+RETE=$(tr -d ' \t\n\r' < "$COPIA/programma/RETE" 2>/dev/null || true)
+case "$RETE" in
+    signet|bitcoin) ;;
+    *) guaio "Il file «programma/RETE» dice «$(leggibile "$RETE")», che non è una rete che conosco.\n\nRicopia la cartella dal computer di partenza." ;;
+esac
+
+# ------------------------------------------------------- who made it?
+#
+# The hashes in IMPRONTE only show that the files arrived intact. The
+# signature over IMPRONTE is checked with a key that travels in the package,
+# and whoever alters the package can replace that key, so the user also
+# compares the key's fingerprint with one obtained elsewhere.
+senza_firma() {
+    if [ "$RETE" = bitcoin ]; then
+        guaio "${1}\n\nIl pacchetto per le monete vere si installa solo firmato. Non installo.\n\nProcurati il pacchetto firmato da chi lo pubblica."
+    fi
+    avviso "${1}\n\nÈ il pacchetto di prova, su signet: si installa lo stesso.\nMa NON scriverci le parole di un portafoglio con monete vere."
+}
+
+# A keyring that holds only the package's key. No agent is started, since
+# importing and verifying do not need one.
+gpg_isolato() {
+    GNUPGHOME="$VERIFICATI/portachiavi" gpg --batch --no-autostart --status-fd 1 "$@" 2>/dev/null
+}
+
+controlla_firma() {
+    [ -f "$QUI/CHIAVE-PUBBLICA.asc" ] || guaio "Il pacchetto è firmato, ma manca la chiave per controllare la firma: «CHIAVE-PUBBLICA.asc».\n\nNon installo. Ricopia la cartella dal computer di partenza, per intero."
+    { cp "$QUI/IMPRONTE.asc" "$VERIFICATI/IMPRONTE.asc" \
+        && cp "$QUI/CHIAVE-PUBBLICA.asc" "$VERIFICATI/CHIAVE-PUBBLICA.asc"; } 2>/dev/null \
+        || guaio "Non riesco a leggere la firma del pacchetto.\n\nRicopia la cartella dal computer di partenza, per intero."
+    mkdir -m 700 "$VERIFICATI/portachiavi"
+
+    IMPORTATE=$(gpg_isolato --import "$VERIFICATI/CHIAVE-PUBBLICA.asc" || true)
+    printf '%s\n' "$IMPORTATE" | grep -q '^\[GNUPG:\] IMPORT_OK ' \
+        || guaio "La chiave nel pacchetto, «CHIAVE-PUBBLICA.asc», non si legge.\n\nNon installo. Ricopia la cartella dal computer di partenza."
+
+    # On the checked copy of IMPRONTE, the one the files were compared with.
+    USCITA=0
+    VERIFICA=$(gpg_isolato --verify "$VERIFICATI/IMPRONTE.asc" "$COPIA/IMPRONTE") || USCITA=$?
+    BUONE=$(printf '%s\n' "$VERIFICA" | grep -c '^\[GNUPG:\] GOODSIG ' || true)
+    VALIDE=$(printf '%s\n' "$VERIFICA" | grep -c '^\[GNUPG:\] VALIDSIG ' || true)
+    if [ "$USCITA" -ne 0 ] || [ "$BUONE" -ne 1 ] || [ "$VALIDE" -ne 1 ] \
+       || printf '%s\n' "$VERIFICA" | grep -Eq '^\[GNUPG:\] (BADSIG|ERRSIG|EXPSIG|EXPKEYSIG|REVKEYSIG|UNEXPECTED|PLAINTEXT)( |$)'; then
+        guaio "La firma del pacchetto NON è valida.\n\nI file non sono quelli che sono stati firmati, oppure la firma non è della chiave nel pacchetto, o la chiave è scaduta o revocata.\n\nNon installo. Non usare questo pacchetto."
+    fi
+
+    # The primary key's fingerprint, the one that gets published.
+    IMPRONTA=$(printf '%s\n' "$VERIFICA" | awk '$2 == "VALIDSIG" { print ($12 != "" ? $12 : $3) }')
+    printf '%s\n' "$IMPRONTA" | grep -Eqx '[0-9A-F]{40}|[0-9A-F]{64}' \
+        || guaio "Non riesco a leggere l'impronta della chiave che ha firmato.\n\nNon installo."
+    A_GRUPPI=$(printf '%s\n' "$IMPRONTA" | sed 's/..../& /g; s/ $//')
+
+    conferma "La firma del pacchetto è valida. L'ha fatta la chiave con questa impronta:\n\n    ${A_GRUPPI}\n\nLa firma da sola non basta, perché chi cambia il pacchetto può metterci una chiave sua e firmarlo con quella.\nConfronta l'impronta, gruppo per gruppo, con quella che hai avuto da un'altra fonte:\ndal sito di PlebLine, o scritta su carta da chi ti ha dato il programma.\n\nÈ la stessa, tutta?" \
+        || guaio "Non installo.\n\nSe l'impronta era diversa, questo pacchetto non viene da PlebLine: non usarlo.\nSe non avevi un'impronta con cui confrontarla, procuratela dal sito di PlebLine, poi rilancia l'installazione."
+}
+
+if [ ! -f "$QUI/IMPRONTE.asc" ]; then
+    senza_firma "Questo pacchetto non è firmato: non si può sapere chi l'ha fatto."
+elif ! command -v gpg >/dev/null 2>&1; then
+    senza_firma "Il pacchetto è firmato, ma qui manca «gpg», il programma che controlla le firme."
+else
+    controlla_firma
+fi
+
+PROG="$COPIA/programma"
+. "$PROG/reti.sh"
+descrivi_rete "$RETE" || guaio "Il file «programma/RETE» dice «${RETE}», che non è una rete che conosco.\n\nRicopia la cartella dal computer di partenza."
+CASA="$HOME/$NASCOSTA"
+
+# ------------------------------------------------- putting files in place
+#
+# Files always come from the checked copy, written next to the destination
+# and renamed over it. After a reboot the Dotfiles leave links in the home:
+# copying home to the Persistent Storage would copy a file onto itself, and
+# writing through a link would change the file without the menu noticing (it
+# watches its own directory). A program still running from the old copy
+# cannot be rewritten on Linux ("Text file busy"), but it can be replaced by
+# a rename.
+nuovo=
+motivo=
+
+non_scrivo() {
+    [ -z "$nuovo" ] || rm -f "$nuovo"
+    guaio "Non riesco a scrivere «${1}».\n\nIl messaggio di errore del sistema:\n${motivo}"
+}
+
+# metti SORGENTE DESTINAZIONE [x], x for a program
+metti() {
+    nuovo="${2%/*}/.${2##*/}.nuovo"
+    motivo=$( { rm -f "$nuovo" && cp "$1" "$nuovo" \
+                && { [ "${3:-}" != x ] || chmod +x "$nuovo"; } \
+                && mv -f "$nuovo" "$2"; } 2>&1 ) || non_scrivo "$2"
+}
+
+programmi_in() {
+    for pezzo in plebline-gui avvia; do
+        metti "$PROG/$pezzo" "$1/$pezzo" x
+    done
+    # Earlier packages also shipped these two. Left behind they would be old
+    # copies that no later install updates.
+    rm -f "$1/plebline" "$1/plebline-guided" 2>/dev/null || true
+    metti "$PROG/plebline.png" "$1/plebline.png"
+    metti "$PROG/RETE" "$1/RETE"
+}
+
+# Every menu entry is filled from the same template, so they cannot differ.
+voce_riempita() {
+    sed -e '/^#/d' \
+        -e "s|@NOME@|$NOME|" \
+        -e "s|@COMMENTO@|$COMMENTO|" \
+        -e "s|@CASA@|$CASA|" \
+        "$PROG/voce.desktop"
+}
+
+scrivi_voce() {
+    nuovo="$1/.$VOCE.nuovo"
+    motivo=$( { rm -f "$nuovo" && voce_riempita > "$nuovo" \
+                && mv -f "$nuovo" "$1/$VOCE"; } 2>&1 ) || non_scrivo "$1/$VOCE"
+}
+
+# ------------------------------------- in the home, gone at shutdown
+motivo=$(mkdir -p "$CASA" "$MENU" 2>&1) || non_scrivo "$CASA"
+programmi_in "$CASA"
+scrivi_voce "$MENU"
+if command -v update-desktop-database >/dev/null 2>&1; then
+    update-desktop-database "$MENU" >/dev/null 2>&1 || true
+fi
+
+# ------------------------------------- in the Persistent Storage
+PERMANENTE=no
+if [ -d "$DOTFILES" ] && [ -w "$DOTFILES" ]; then
+    # Same layout as in $HOME: the Dotfiles link files back by path.
+    NASCOSTA=${CASA#"$HOME"/}
+    motivo=$(mkdir -p "$DOTFILES/$NASCOSTA" "$DOTFILES/.local/share/applications" 2>&1) \
+        || non_scrivo "$DOTFILES/$NASCOSTA"
+    programmi_in "$DOTFILES/$NASCOSTA"
+    scrivi_voce "$DOTFILES/.local/share/applications"
+    PERMANENTE=si
+fi
+
+# --------------------------------------------------- telling the user
+if [ "$PERMANENTE" = si ]; then
+    MESSAGGIO="PlebLine è pronto.
+
+Lo trovi in Applicazioni → Ufficio, come «${NOME}».
+C'è già adesso, e ci sarà a ogni avvio di Tails."
+else
+    MESSAGGIO="PlebLine è pronto, ma solo per questa volta.
+
+Lo trovi in Applicazioni → Ufficio, come «${NOME}».
+Allo spegnimento sparirà.
+
+Per ritrovarlo a ogni avvio serve l'Archiviazione persistente:
+Applicazioni → Tails → Archiviazione persistente,
+creala se non c'è, e accendi «Dotfiles».
+Poi clicca di nuovo «Installa PlebLine»."
+fi
+
+# Opens the window the same way the menu entry does, so no terminal program
+# has to be guessed (Tails 7 has GNOME Console, not gnome-terminal).
+if domanda "$MESSAGGIO
+
+Vuoi aprirlo adesso?"; then
+    sh "$CASA/avvia" >/dev/null 2>&1 &
+elif ! grafico; then
+    info "$MESSAGGIO"
+fi

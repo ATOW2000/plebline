@@ -1,0 +1,15 @@
+[Desktop Entry]
+# Menu entry template, filled by `build-app.sh` and `installa` (@NOME@,
+# @COMMENTO@, @CASA@). Keep quotes, `$` and apostrophes out of `Exec=`: they
+# are reserved in .desktop files and each reader handles them differently.
+Type=Application
+Version=1.0
+Name=@NOME@
+GenericName=Firma in blocco per cold storage
+Comment=@COMMENTO@
+Exec=sh @CASA@/avvia
+Icon=@CASA@/plebline.png
+Terminal=false
+StartupNotify=true
+Categories=Office;Finance;
+Keywords=bitcoin;firma;cold storage;

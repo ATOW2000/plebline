@@ -1,0 +1,46 @@
+[package]
+name = "plebline"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+description = "Batch-signs independent Bitcoin transactions, for airgapped cold storage"
+
+[features]
+# The fake chain, scripted answers and test helpers, for other crates' tests.
+test-support = []
+
+[dependencies]
+plebline-core.workspace = true
+bdk_wallet.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+# `harden.rs`: no core dumps, no memory reads by other processes.
+libc = "0.2"
+
+# The async client because only it speaks SOCKS5, that is Tor; rustls so the
+# build does not depend on the machine's certificate store.
+bdk_esplora = { version = "0.22", default-features = false, features = [
+    "std",
+    "async-https-rustls",
+    "tokio",
+] }
+# reqwest to build the HTTP client by hand (`chain.rs`); url so the Tor rule
+# reads hosts with the client's own parser (`tor.rs`).
+reqwest = { version = "0.12", default-features = false }
+url = "2"
+tokio = { version = "1", default-features = false, features = [
+    "rt",
+    "net",
+    "time",
+] }
+
+comfy-table = { version = "7", default-features = false }
+owo-colors = "4"
+qrcode = { version = "0.14", default-features = false, features = ["image"] }
+# png and jpeg only: less decoder code exposed to a hostile image.
+image = { version = "0.25.6", default-features = false, features = ["png", "jpeg"] }
+# Pure Rust: the image comes from outside, into the process holding the seed.
+rqrr = "0.11"

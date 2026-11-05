@@ -1,0 +1,154 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  # Advisories get published whether or not anything is pushed, so the audit
+  # also runs every week.
+  schedule:
+    - cron: "23 4 * * 1"
+
+# No job writes to the repository.
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+# Actions are pinned by commit hash because a tag can be moved to point at
+# other code. The comment after each hash names the release.
+jobs:
+  test:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Version, components and target come from rust-toolchain.toml.
+      - name: Rust from rust-toolchain.toml
+        run: rustup toolchain install && rustc --version
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      - name: Formatting
+        run: cargo fmt --all --check
+
+      - name: Clippy
+        run: cargo clippy --all-targets --all-features --locked
+
+      - name: Test
+        run: cargo test --workspace --locked
+
+      # A doc link to something renamed or removed fails here.
+      - name: Documentation links
+        run: cargo doc --workspace --no-deps --locked
+        env:
+          RUSTDOCFLAGS: -D warnings
+
+      # The Tails test package is built with this feature.
+      - name: Tests of the signet build
+        run: cargo test -p plebline-guided --features signet --locked
+
+      - name: Tails installer, without Tails
+        run: sh scripts/prova-tails-app.sh
+
+  # A separate job, so that a failure points straight at the rule that broke:
+  # plebline-core (keys and signing) has no network crate in its tree. The
+  # binary links network code by choice (docs/DECISIONS.md); the core must not.
+  offline-core:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Rust from rust-toolchain.toml
+        run: rustup toolchain install && rustc --version
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      - name: No network crate in plebline-core's tree
+        run: |
+          TREE=$(cargo tree --package plebline-core --edges normal --locked)
+          echo "$TREE"
+          if echo "$TREE" | grep -iE "reqwest|hyper|rustls|webpki|esplora|ureq|minreq|curl|openssl|native-tls|tokio|mio|socket2"; then
+            echo "::error::plebline-core dipende da un crate di rete: la logica delle chiavi non deve poter parlare con niente."
+            exit 1
+          fi
+
+      # The core could still open a socket through std, or start a child
+      # process to talk for it, without any crate, so the sources are searched
+      # for both.
+      - name: No network in plebline-core's sources
+        run: |
+          if grep -rnE '(std|core)::net\b|(std|core)::\{[^}]*\bnet\b|\bnet::|TcpStream|TcpListener|UdpSocket|UnixStream|UnixListener|UnixDatagram|ToSocketAddrs|to_socket_addrs|process::Command|\bCommand::new' crates/plebline-core/src; then
+            echo "::error::plebline-core usa la rete o lancia programmi: la logica delle chiavi non deve poter parlare con niente."
+            exit 1
+          fi
+
+  # Known vulnerabilities in the locked tree: `image` and `rqrr` open files
+  # from a stick, `rustls` and `bdk_wallet` carry the rest.
+  audit:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Rust from rust-toolchain.toml
+        run: rustup toolchain install && rustc --version
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --version 0.22.2 --locked
+
+      - name: Known vulnerabilities in dependencies
+        run: cargo audit --deny warnings
+
+  # The Tails test package, built by build-app.sh from clean (no cache). Its
+  # hashes are in the run summary and in the IMPRONTE artifact, for anyone to
+  # compare with their own build of the same commit (docs/REPRODUCIBLE.md
+  # says on which machines they can match). Push only, because on a pull
+  # request the commit is a merge GitHub created, which nobody else can build.
+  package:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Rust from rust-toolchain.toml
+        run: rustup toolchain install && rustc --version
+
+      # The versions are read from build-app.sh, which also checks them, so
+      # they are written in one place only.
+      - name: Versions pinned in build-app.sh
+        id: versions
+        run: |
+          echo "zig=$(sed -n 's/^ZIG_FISSATO=//p' scripts/build-app.sh)" >> "$GITHUB_OUTPUT"
+          echo "zigbuild=$(sed -n 's/^ZIGBUILD_FISSATO=//p' scripts/build-app.sh)" >> "$GITHUB_OUTPUT"
+      # Checks the download against Zig's minisign key.
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+        with:
+          version: ${{ steps.versions.outputs.zig }}
+          use-cache: false
+      - name: Install cargo-zigbuild
+        run: cargo install cargo-zigbuild --version "${{ steps.versions.outputs.zigbuild }}" --locked
+
+      - name: Signet package
+        run: sh scripts/build-app.sh signet
+
+      - name: Binary hashes
+        run: |
+          cd dist/PlebLine-prova
+          {
+            echo "### Signet package, commit ${GITHUB_SHA}"
+            echo '```'
+            sha256sum programma/plebline-gui IMPRONTE
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: impronte-signet-${{ github.sha }}
+          path: dist/PlebLine-prova/IMPRONTE
+          if-no-files-found: error

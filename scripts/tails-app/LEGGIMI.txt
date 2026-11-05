@@ -1,0 +1,144 @@
+@NOME@
+=====================================
+
+Per installarlo serve scrivere una riga nel terminale, una volta sola. Da lì
+in poi PlebLine è una voce del menu che apre una finestra, e il terminale
+non serve più.
+
+
+COME SI INSTALLA
+----------------
+
+1. Applicazioni -> Utilità -> Terminale.
+
+2. Scrivi:      sh
+   poi uno spazio, e TRASCINA il file «installa» dentro la finestra del
+   terminale: il percorso si scrive da solo.
+
+3. Invio.
+
+Compare una finestra che dice dov'è finito. PlebLine è in
+Applicazioni -> Ufficio; se la finestra non si apre, un messaggio dice
+il motivo.
+
+Un doppio clic sul file non basta: su Tails il gestore file non avvia i
+programmi, per sicurezza. Le voci di menu sì, e quella riga ne crea una.
+
+
+PRIMA DI INSTALLARE, CONTROLLA
+------------------------------
+
+«installa» ricontrolla ogni file con il file IMPRONTE, su una copia sua.
+Se l'elenco manca, se un file non torna o se nella cartella c'è un file
+in più, si ferma e non installa niente: ricopia la cartella per intero,
+e prima di sfilare la chiavetta espellila.
+
+Se il pacchetto è firmato, ti mostra l'impronta della chiave che l'ha
+firmato, a gruppi di quattro caratteri. Confrontala, gruppo per gruppo,
+con quella che hai avuto da un'altra fonte: dal sito di PlebLine, o
+scritta su carta da chi ti ha dato il programma. Qui non la trovi,
+perché chi cambiasse il pacchetto potrebbe cambiare anche questo file.
+
+Se non è la stessa, rispondi no e l'installazione si ferma. Anche solo
+Invio vale come no.
+
+Il pacchetto per le monete vere si installa solo se è firmato. Quello di
+prova, su signet, si installa anche senza firma e te lo segnala: in quel
+caso non scriverci le parole di un portafoglio con monete vere.
+
+
+RITROVARLO A OGNI AVVIO
+-----------------------
+
+Accendi prima l'Archiviazione persistente con la voce «Dotfiles»:
+   Applicazioni -> Tails -> Archiviazione persistente
+poi rifai l'installazione. L'installatore se ne accorge da solo e te lo
+dice: «ci sarà a ogni avvio di Tails».
+
+Senza, PlebLine funziona lo stesso ma sparisce allo spegnimento.
+
+
+UNA VERSIONE NUOVA
+------------------
+
+Si installa allo stesso modo, sopra quella di prima: la stessa riga nel
+terminale, con il file «installa» della cartella nuova. Prima chiudi
+PlebLine, se è aperto.
+
+
+SENZA TERMINALE, PER DAVVERO
+----------------------------
+
+Si può fare, ma passa da una cartella nascosta:
+
+1. copia l'intera cartella dentro la Home, senza cambiarle nome;
+2. nel gestore file premi Ctrl+H per vedere i file nascosti;
+3. entra in «.local», poi in «share», poi in «applications»;
+4. copiaci dentro il file che sta nella cartella «senza-terminale».
+
+L'icona compare nel menu. Fatto così, però, non usa l'archiviazione
+persistente: la voce va rimessa dopo ogni riavvio.
+
+
+GLI INDIRIZZI DAL TELEFONO
+--------------------------
+
+Dopo «Nuove ricariche», con la rete ancora attaccata, PlebLine propone
+di ricevere gli indirizzi dal telefono con OnionShare (già dentro
+Tails), in modalità «Ricevi». Sul telefono accendi Orbot e apri
+l'indirizzo onion nel browser di sempre (comincia con http://, senza
+la s), poi incolla gli indirizzi, uno per riga. Non servono chiavette,
+e gli indirizzi non passano dal server di qualcun altro. Ogni indirizzo
+ti viene rimostrato, anche come QR da rileggere col telefono. Se
+preferisci, li scrivi dopo, uno alla volta.
+
+
+LE RICARICHE FIRMATE, VERSO IL TELEFONO
+---------------------------------------
+
+Alla fine PlebLine chiede dove vuoi portarle. Se scegli «Sul telefono»,
+le mostra come QR, uno per ricarica, con la rete staccata, e il telefono
+le legge dallo schermo senza collegare niente al computer. Una ricarica
+troppo grande per un solo QR va su chiavetta.
+
+
+LA VOLTA DOPO
+-------------
+
+Ogni volta che lo riapri, PlebLine riparte da zero: rilegge le monete
+dalla catena e sposta le ricariche firmate le volte prima in una
+cartella «precedenti», dentro quella della cerimonia. Lì restano finché
+non scegli «Chiudi e cancella», che prima di cancellarle te lo chiede
+(la risposta già pronta è no).
+
+PlebLine però non le guarda più, e le loro monete gli sembrano libere.
+Per questo, prima di firmare, ti ricorda di controllare di averle
+mandate tutte.
+
+
+L'INDIRIZZO DI CHI RICEVE, A MANO
+---------------------------------
+
+Su Tails la fotocamera non si può usare, quindi non puoi inquadrare un
+QR. Alla domanda «Indirizzo di destinazione» restano due modi:
+
+- il pulsante «Incolla» (o Ctrl+V). Va bene anche un indirizzo nella
+  forma  bitcoin:...?amount=...  e in quel caso PlebLine ti propone
+  l'importo e te lo fa confermare;
+- il pulsante «Cerca un QR nella chiavetta», che guarda le immagini
+  nelle chiavette montate e te le elenca.
+
+Trascinare l'immagine dentro la finestra qui NON funziona: su Tails la
+grafica è Wayland, e da lì il file trascinato non arriva. Per questo la
+finestra non te lo propone nemmeno.
+
+Un indirizzo letto da un QR passa dallo stesso controllo di uno scritto a
+mano, e ti viene rimostrato a gruppi di quattro caratteri. GUARDALO. Se
+l'indirizzo è sbagliato ma è comunque un indirizzo valido, PlebLine non
+può accorgersene: la ricarica sarà valida e pagherà un estraneo.
+
+
+LE MONETE
+---------
+
+@MONETE@

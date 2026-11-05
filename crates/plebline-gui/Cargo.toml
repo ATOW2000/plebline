@@ -1,0 +1,34 @@
+[package]
+name = "plebline-gui"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+description = "PlebLine's guided ceremony in a window: same ceremony, another way to answer"
+
+[[bin]]
+name = "plebline-gui"
+path = "src/main.rs"
+
+[features]
+# The network is another binary, not an option: see `plebline-guided`.
+signet = ["plebline-guided/signet"]
+
+[dependencies]
+# The whole ceremony: this crate runs `run` on a thread and answers it from
+# the window.
+plebline-guided = { path = "../plebline-guided" }
+plebline = { path = "../plebline" }
+plebline-core.workspace = true
+zeroize.workspace = true
+
+# glow (OpenGL), not wgpu: Tails machines often lack a real GPU, and Mesa's
+# software OpenGL (llvmpipe) is always there; wgpu wants Vulkan.
+# No `persistence`: it writes window state to disk, a trace nobody asked for.
+# No `accesskit`: a bridge to the rest of the system, in a process holding a
+# seed.
+[dependencies.eframe]
+version = "0.35"
+default-features = false
+features = ["glow", "default_fonts", "wayland", "x11"]
